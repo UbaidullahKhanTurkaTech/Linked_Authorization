@@ -68,7 +68,12 @@ async def callback(request: Request, code: str):
                 return templates.TemplateResponse("error.html", {"request": request, "message": "Missing id_token in response."})
 
             # Decode without signature verification (since LinkedIn doesn't expose JWKS for OIDC)
-            decoded = jwt.decode(id_token, key="", options={"verify_signature": False})
+            decoded = jwt.decode(
+                                id_token,
+                                key="",  # Signature verification skipped
+                                options={"verify_signature": False},
+                                audience=CLIENT_ID  # Required to match LinkedIn's 'aud'
+                            )
             return templates.TemplateResponse("success.html", {"request": request, "profile": decoded})
 
     except Exception as e:
