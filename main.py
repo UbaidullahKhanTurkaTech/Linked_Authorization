@@ -29,45 +29,79 @@ def home(request: Request):
 
 @app.get("/login")
 def login():
+    # linkedin_url = (
+        # f"{LINKEDIN_AUTH_URL}?response_type=code&client_id={CLIENT_ID}"
+        # f"&redirect_uri={REDIRECT_URI}&scope=r_liteprofile%20r_emailaddress"
+    # )
     linkedin_url = (
-        f"{LINKEDIN_AUTH_URL}?response_type=code&client_id={CLIENT_ID}"
-        f"&redirect_uri={REDIRECT_URI}&scope=r_liteprofile%20r_emailaddress"
-    )
+    f"{LINKEDIN_AUTH_URL}?response_type=code&client_id={CLIENT_ID}"
+    f"&redirect_uri={REDIRECT_URI}&scope=openid%20profile%20email"
+)
+
     return RedirectResponse(linkedin_url)
 
+from jose import jwt
+import base64
 
 @app.get("/callback")
-async def callback(request: Request, code: str = None, error: str = None):
-    if error:
-        return templates.TemplateResponse("error.html", {"request": request, "error": error})
+async def callback(code: str):
+    token_data = {
+        "grant_type": "authorization_code",
+        "code": code,
+        "redirect_uri": REDIRECT_URI,
+        "client_id": CLIENT_ID,
+        "client_secret": CLIENT_SECRET
+    }
 
     try:
-        async with httpx.AsyncClient() as client:
-            token_resp = await client.post(
-                LINKEDIN_TOKEN_URL,
-                data={
-                    "grant_type": "authorization_code",
-                    "code": code,
-                    "redirect_uri": REDIRECT_URI,
-                    "client_id": CLIENT_ID,
-                    "client_secret": CLIENT_SECRET,
-                },
-                headers={"Content-Type": "application/x-www-form-urlencoded"},
-            )
+        token_resp = await httpx.post(LINKEDIN_TOKEN_URL, data=token_data, headers={"Content-Type": "application/x-www-form-urlencoded"})
+        token_json = token_resp.json()
+        id_token = token_json.get("id_token")
 
-            token_resp.raise_for_status()
-            access_token = token_resp.json().get("access_token")
+        if not id_token:
+            return templates.TemplateResponse("error.html", {"request": {}, "message": "No id_token received"})
 
-            profile_resp = await client.get(
-                LINKEDIN_PROFILE_URL,
-                headers={"Authorization": f"Bearer {access_token}"},
-            )
+        # ⚠ LinkedIn doesn't provide a public key to validate the JWT,
+        # so you can decode without verifying signature (ONLY if you're okay with that)
+        decoded = jwt.decode(id_token, key='', options={"verify_signature": False})
+        
+        return templates.TemplateResponse("success.html", {"request": {}, "profile": decoded})
 
-            profile_resp.raise_for_status()
-            profile_data = profile_resp.json()
-            return templates.TemplateResponse("success.html", {"request": request, "profile": profile_data})
     except Exception as e:
-        return templates.TemplateResponse("error.html", {"request": request, "error": str(e)})
+        return templates.TemplateResponse("error.html", {"request": {}, "message": str(e)})
+
+# @app.get("/callback")
+# async def callback(request: Request, code: str = None, error: str = None):
+    # if error:
+        # return templates.TemplateResponse("error.html", {"request": request, "error": error})
+
+    # try:
+        # async with httpx.AsyncClient() as client:
+            # token_resp = await client.post(
+                # LINKEDIN_TOKEN_URL,
+                # data={
+                    # "grant_type": "authorization_code",
+                    # "code": code,
+                    # "redirect_uri": REDIRECT_URI,
+                    # "client_id": CLIENT_ID,
+                    # "client_secret": CLIENT_SECRET,
+                # },
+                # headers={"Content-Type": "application/x-www-form-urlencoded"},
+            # )
+
+            # token_resp.raise_for_status()
+            # access_token = token_resp.json().get("access_token")
+
+            # profile_resp = await client.get(
+                # LINKEDIN_PROFILE_URL,
+                # headers={"Authorization": f"Bearer {access_token}"},
+            # )
+
+            # profile_resp.raise_for_status()
+            # profile_data = profile_resp.json()
+            # return templates.TemplateResponse("success.html", {"request": request, "profile": profile_data})
+    # except Exception as e:
+        # return templates.TemplateResponse("error.html", {"request": request, "error": str(e)})
 
 
 @app.get("/policy", response_class=HTMLResponse)
