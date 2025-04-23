@@ -1,3 +1,10 @@
-<h1>Login Successful</h1>
-<p>Welcome, {{ profile.name }}</p>
-<p>Email: {{ profile.email }}</p>
+<!DOCTYPE html>
+<html>
+<head><title>Login Success</title></head>
+<body>
+  <h1>Login Successful</h1>
+  <p>Welcome, {{ profile.name or profile.given_name }}!</p>
+  <p>Email: {{ profile.email or profile.email_verified }}</p>
+  <pre>{{ profile | safe }}</pre>
+</body>
+</html>

@@ -44,7 +44,7 @@ from jose import jwt
 import base64
 
 @app.get("/callback")
-async def callback(code: str):
+async def callback(request: Request, code: str):
     token_data = {
         "grant_type": "authorization_code",
         "code": code,
@@ -53,23 +53,26 @@ async def callback(code: str):
         "client_secret": CLIENT_SECRET
     }
 
+    headers = {"Content-Type": "application/x-www-form-urlencoded"}
+
     try:
-        token_resp = await httpx.post(LINKEDIN_TOKEN_URL, data=token_data, headers={"Content-Type": "application/x-www-form-urlencoded"})
-        token_json = token_resp.json()
-        id_token = token_json.get("id_token")
+        async with httpx.AsyncClient() as client:
+            token_resp = await client.post(LINKEDIN_TOKEN_URL, data=token_data, headers=headers)
+            token_json = token_resp.json()
 
-        if not id_token:
-            return templates.TemplateResponse("error.html", {"request": {}, "message": "No id_token received"})
+            if "error" in token_json:
+                return templates.TemplateResponse("error.html", {"request": request, "message": token_json.get("error_description", "Unknown error")})
 
-        # ⚠ LinkedIn doesn't provide a public key to validate the JWT,
-        # so you can decode without verifying signature (ONLY if you're okay with that)
-        decoded = jwt.decode(id_token, key='', options={"verify_signature": False})
-        
-        return templates.TemplateResponse("success.html", {"request": {}, "profile": decoded})
+            id_token = token_json.get("id_token")
+            if not id_token:
+                return templates.TemplateResponse("error.html", {"request": request, "message": "Missing id_token in response."})
+
+            # Decode without signature verification (since LinkedIn doesn't expose JWKS for OIDC)
+            decoded = jwt.decode(id_token, key="", options={"verify_signature": False})
+            return templates.TemplateResponse("success.html", {"request": request, "profile": decoded})
 
     except Exception as e:
-        return templates.TemplateResponse("error.html", {"request": {}, "message": str(e)})
-
+        return templates.TemplateResponse("error.html", {"request": request, "message": str(e)})
 # @app.get("/callback")
 # async def callback(request: Request, code: str = None, error: str = None):
     # if error:
