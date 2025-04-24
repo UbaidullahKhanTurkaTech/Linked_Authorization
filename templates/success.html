@@ -5,7 +5,32 @@
   <h1>Login Successful</h1>
   <p>Welcome, {{ profile.name or profile.given_name }}!</p>
   <p>Email: {{ profile.email or profile.email_verified }}</p>
-  <pre>{{ profile | safe }}</pre>
+  <!<pre>{{ profile | safe }}</pre>>
+  <table border="1" cellpadding="8" cellspacing="0" style="border-collapse: collapse; width: 100%;">
+    <thead>
+        <tr>
+            <th style="text-align: left;">Key</th>
+            <th style="text-align: left;">Value</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for key, value in profile.items() %}
+        <tr>
+            <td><strong>{{ key }}</strong></td>
+            <td>
+                {% if value is mapping %}
+                    <pre>{{ value | tojson(indent=2) }}</pre>
+                {% elif value is iterable and value is not string %}
+                    <pre>{{ value | join(', ') }}</pre>
+                {% else %}
+                    {{ value }}
+                {% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
   <a href="/logout">Logout</a>
 </body>
 </html>
