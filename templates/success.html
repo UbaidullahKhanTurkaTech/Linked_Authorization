@@ -6,5 +6,6 @@
   <p>Welcome, {{ profile.name or profile.given_name }}!</p>
   <p>Email: {{ profile.email or profile.email_verified }}</p>
   <pre>{{ profile | safe }}</pre>
+  <a href="/logout">Logout</a>
 </body>
 </html>

@@ -5,11 +5,16 @@ from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
 import httpx
 import os
+from fastapi import status
+from starlette.middleware.sessions import SessionMiddleware
+from jose import jwt
+import base64
 
 load_dotenv()
 
 app = FastAPI()
 templates = Jinja2Templates(directory="templates")
+app.add_middleware(SessionMiddleware, secret_key="testing_Linked13251632375226753284753264357")  # Use a strong secret!
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
@@ -24,7 +29,9 @@ LINKEDIN_PROFILE_URL = "https://api.linkedin.com/v2/me"
 
 @app.get("/", response_class=HTMLResponse)
 def home(request: Request):
-    return templates.TemplateResponse("home.html", {"request": request})
+    response = templates.TemplateResponse("home.html", {"request": request})
+    response.delete_cookie("id_token")  # Forget previous login
+    return response
 
 
 @app.get("/login")
@@ -36,12 +43,46 @@ def login():
     linkedin_url = (
     f"{LINKEDIN_AUTH_URL}?response_type=code&client_id={CLIENT_ID}"
     f"&redirect_uri={REDIRECT_URI}&scope=openid%20profile%20email"
+    f"&prompt=login"
 )
-
     return RedirectResponse(linkedin_url)
 
-from jose import jwt
-import base64
+# @app.get("/callback")
+# async def callback(request: Request, code: str):
+    # token_data = {
+        # "grant_type": "authorization_code",
+        # "code": code,
+        # "redirect_uri": REDIRECT_URI,
+        # "client_id": CLIENT_ID,
+        # "client_secret": CLIENT_SECRET
+    # }
+
+    # headers = {"Content-Type": "application/x-www-form-urlencoded"}
+
+    # try:
+        # async with httpx.AsyncClient() as client:
+            # # Exchange the code for an access token
+            # token_resp = await client.post(LINKEDIN_TOKEN_URL, data=token_data, headers=headers)
+            # token_json = token_resp.json()
+
+            # access_token = token_json.get("access_token")
+            # if not access_token:
+                # return templates.TemplateResponse("error.html", {"request": request, "message": "Missing access_token"})
+
+            # # Get the user's profile information using the access token
+            # profile_resp = await client.get(
+                # LINKEDIN_PROFILE_URL,
+                # headers={"Authorization": f"Bearer {access_token}"}
+            # )
+            # profile_data = profile_resp.json()
+
+            # # Return the profile data and set the access_token as a cookie
+            # response = templates.TemplateResponse("success.html", {"request": request, "profile": profile_data})
+            # response.set_cookie("access_token", access_token, httponly=True, max_age=3600)
+            # return response
+
+    # except Exception as e:
+        # return templates.TemplateResponse("error.html", {"request": request, "message": str(e)})
 
 @app.get("/callback")
 async def callback(request: Request, code: str):
@@ -61,57 +102,47 @@ async def callback(request: Request, code: str):
             token_json = token_resp.json()
 
             if "error" in token_json:
-                return templates.TemplateResponse("error.html", {"request": request, "message": token_json.get("error_description", "Unknown error")})
+                request.session["error_message"] = token_json.get("error_description", "Unknown error")
+                return RedirectResponse("/error", status_code=status.HTTP_302_FOUND)
 
             id_token = token_json.get("id_token")
             if not id_token:
-                return templates.TemplateResponse("error.html", {"request": request, "message": "Missing id_token in response."})
+                request.session["error_message"] = "Missing id_token in response."
+                return RedirectResponse("/error", status_code=status.HTTP_302_FOUND)
 
-            # Decode without signature verification (since LinkedIn doesn't expose JWKS for OIDC)
             decoded = jwt.decode(
-                                id_token,
-                                key="",  # Signature verification skipped
-                                options={"verify_signature": False},
-                                audience=CLIENT_ID  # Required to match LinkedIn's 'aud'
-                            )
-            return templates.TemplateResponse("success.html", {"request": request, "profile": decoded})
+                id_token,
+                key="",  # Skipping signature verification
+                options={"verify_signature": False},
+                audience=CLIENT_ID
+            )
+
+            request.session["user_profile"] = decoded
+            # return RedirectResponse("/success", status_code=status.HTTP_302_FOUND)
+            response = RedirectResponse(url="/success", status_code=status.HTTP_302_FOUND)
+            response.set_cookie("id_token", id_token, httponly=True, max_age=3600)
+            return response
 
     except Exception as e:
-        return templates.TemplateResponse("error.html", {"request": request, "message": str(e)})
-# @app.get("/callback")
-# async def callback(request: Request, code: str = None, error: str = None):
-    # if error:
-        # return templates.TemplateResponse("error.html", {"request": request, "error": error})
+        request.session["error_message"] = str(e)
+        return RedirectResponse("/error", status_code=status.HTTP_302_FOUND)
+        
+@app.get("/success")
+def success_page(request: Request):
+    user = request.session.get("user_profile", {})
+    return templates.TemplateResponse("success.html", {"request": request, "profile": user})
 
-    # try:
-        # async with httpx.AsyncClient() as client:
-            # token_resp = await client.post(
-                # LINKEDIN_TOKEN_URL,
-                # data={
-                    # "grant_type": "authorization_code",
-                    # "code": code,
-                    # "redirect_uri": REDIRECT_URI,
-                    # "client_id": CLIENT_ID,
-                    # "client_secret": CLIENT_SECRET,
-                # },
-                # headers={"Content-Type": "application/x-www-form-urlencoded"},
-            # )
-
-            # token_resp.raise_for_status()
-            # access_token = token_resp.json().get("access_token")
-
-            # profile_resp = await client.get(
-                # LINKEDIN_PROFILE_URL,
-                # headers={"Authorization": f"Bearer {access_token}"},
-            # )
-
-            # profile_resp.raise_for_status()
-            # profile_data = profile_resp.json()
-            # return templates.TemplateResponse("success.html", {"request": request, "profile": profile_data})
-    # except Exception as e:
-        # return templates.TemplateResponse("error.html", {"request": request, "error": str(e)})
-
-
+@app.get("/error")
+def error_page(request: Request):
+    error_msg = request.session.get("error_message", "Unknown error")
+    return templates.TemplateResponse("error.html", {"request": request, "message": error_msg})
+    
 @app.get("/policy", response_class=HTMLResponse)
 def policy(request: Request):
     return templates.TemplateResponse("policy.html", {"request": request})
+
+@app.get("/logout")
+def logout():
+    response = RedirectResponse(url="/")
+    response.delete_cookie("id_token")
+    return response
