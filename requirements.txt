@@ -4,3 +4,4 @@ httpx
 python-dotenv 
 jinja2
 python-jose
+itsdangerous
